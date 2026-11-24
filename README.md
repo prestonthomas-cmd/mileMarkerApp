@@ -34,3 +34,8 @@ npm test
 - `js/places.js`: curated destinations and fun facts (add your own here)
 - `js/wiki.js`: Wikipedia lookup for places near your current position
 - `js/app.js`: app state, logging and rendering
+
+## Deploy
+
+Every push to `main` runs the tests and publishes the site to GitHub Pages using `.github/workflows/pages.yml`.
+One-time setup: in the repository's **Settings → Pages**, set **Source** to **GitHub Actions**.
