@@ -95,6 +95,22 @@ button.icon:hover { color: var(--danger); }
 .progress { height: 10px; background: var(--accent-soft); border-radius: 99px; overflow: hidden; }
 .progress-bar { height: 100%; width: 0; background: var(--accent); border-radius: 99px; transition: width .5s ease; }
 
+.next-leg {
+  margin: .75rem 0; padding: .75rem 1rem 1rem; border-radius: 10px;
+  background: var(--accent-soft); border: 1px solid var(--accent);
+}
+.next-leg label { margin-top: 0; }
+.next-leg select { flex: 1; width: auto; min-width: 0; }
+
+.legs { list-style: none; margin: .5rem 0 0; padding: 0; counter-reset: leg; }
+.legs li {
+  display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+  padding: .4rem .5rem; border-top: 1px solid var(--line); counter-increment: leg;
+}
+.legs li::before { content: counter(leg); color: var(--muted); font-size: .8rem; width: 1.2rem; flex-shrink: 0; }
+.legs li > span:first-of-type { flex: 1; }
+.legs li.current { background: var(--accent-soft); border-radius: 8px; }
+
 .here-title { font-size: 1.1rem; margin-top: .75rem; }
 .facts { list-style: none; padding: 0; margin: .75rem 0; display: grid; gap: .75rem; }
 .fact { display: flex; gap: .75rem; padding: .75rem; border: 1px solid var(--line); border-radius: 10px; }

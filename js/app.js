@@ -18,10 +18,18 @@
   function loadState() {
     try {
       const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
-      if (s && Array.isArray(s.entries)) return s;
+      if (s && Array.isArray(s.entries)) {
+        // Older saves had a single `goal`; turn it into the first leg.
+        if (!Array.isArray(s.legs)) {
+          s.legs = s.home && s.goal ? [{ from: s.home, goal: s.goal, startMiles: 0 }] : [];
+          delete s.goal;
+        }
+        return s;
+      }
     } catch { /* fall through */ }
-    return { home: null, goal: null, entries: [] };
+    return emptyState();
   }
+  function emptyState() { return { home: null, legs: [], entries: [] }; }
   function saveState() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
     catch { $("log-message").textContent = "Couldn't save. Your browser may be blocking storage."; }
@@ -49,15 +57,46 @@
   }
 
   // ---------- Route ----------
-  function routeBearing() {
-    if (state.goal.kind === "heading") return state.goal.deg;
-    return Geo.bearing(state.home, state.goal);
+  // The journey is a chain of legs. Each leg starts where the previous one
+  // ended, at the mile mark where you arrived (`startMiles`).
+  const shortName = (name) => (name === "My location" ? "Home" : name.replace(/, [^,]+$/, ""));
+  const lastLeg = () => state.legs[state.legs.length - 1];
+  const legBearing = (leg) => (leg.goal.kind === "heading" ? leg.goal.deg : Geo.bearing(leg.from, leg.goal));
+  const legLength = (leg) => (leg.goal.kind === "place" ? Geo.distance(leg.from, leg.goal) : null);
+  const legEndMiles = (leg) => (leg.goal.kind === "place" ? leg.startMiles + legLength(leg) : Infinity);
+
+  // Index of the leg you're on for a given total (deleting log entries can
+  // move you back onto an earlier leg).
+  function activeLegIndex(total) {
+    let i = 0;
+    while (i + 1 < state.legs.length && state.legs[i + 1].startMiles <= total) i++;
+    return i;
   }
-  function goalDistance() {
-    return state.goal.kind === "place" ? Geo.distance(state.home, state.goal) : null;
+
+  // Miles traveled on a leg, capped at its length. Once you reach the final
+  // destination you wait there; extra miles carry over to the next leg.
+  function milesOnLeg(leg, total) {
+    const m = Math.max(0, total - leg.startMiles);
+    const len = legLength(leg);
+    return len === null ? m : Math.min(m, len);
   }
-  function currentPosition(miles = totalMiles()) {
-    return Geo.destination(state.home, routeBearing(), miles);
+
+  function currentPosition(total = totalMiles()) {
+    const leg = state.legs[activeLegIndex(total)];
+    return Geo.destination(leg.from, legBearing(leg), milesOnLeg(leg, total));
+  }
+
+  // True when you've reached the final leg's destination and need a new one.
+  const awaitingNextLeg = (total = totalMiles()) => total >= legEndMiles(lastLeg());
+
+  function parseGoal(value) {
+    const [kind, rest] = String(value).split(/:(.*)/s);
+    if (kind === "heading") {
+      const h = HEADINGS.find(([, d]) => d === Number(rest));
+      return h ? { kind, deg: h[1], name: `Due ${h[0]}` } : null;
+    }
+    const p = PLACES.find((pl) => placeLabel(pl) === rest);
+    return p ? { kind: "place", name: placeLabel(p), lat: p.lat, lng: p.lng } : null;
   }
 
   // Curated places sorted by distance from home (excluding home itself).
@@ -71,16 +110,20 @@
   // ---------- Setup ----------
   let pendingHome = null; // set when "Use my location" succeeds
 
-  function fillSetupOptions() {
-    $("city-list").innerHTML = PLACES.map((p) => `<option value="${escapeHtml(placeLabel(p))}"></option>`).join("");
+  function goalOptionsHtml(excludeName) {
     const placeOpts = [...PLACES]
+      .filter((p) => placeLabel(p) !== excludeName)
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((p) => `<option value="place:${escapeHtml(placeLabel(p))}">${escapeHtml(placeLabel(p))}</option>`).join("");
     const headingOpts = HEADINGS.map(([n, d]) => `<option value="heading:${d}">Due ${n}</option>`).join("");
-    $("goal-select").innerHTML =
-      `<option value="" disabled selected>Choose a destination…</option>` +
+    return `<option value="" disabled selected>Choose a destination…</option>` +
       `<optgroup label="A faraway place">${placeOpts}</optgroup>` +
       `<optgroup label="A compass direction">${headingOpts}</optgroup>`;
+  }
+
+  function fillSetupOptions() {
+    $("city-list").innerHTML = PLACES.map((p) => `<option value="${escapeHtml(placeLabel(p))}"></option>`).join("");
+    $("goal-select").innerHTML = goalOptionsHtml();
   }
 
   function showSetup(editing) {
@@ -91,10 +134,13 @@
     $("home-status").textContent = "";
     pendingHome = null;
     if (editing && state.home) {
+      const goal = state.legs[0].goal;
       $("home-input").value = state.home.name;
       pendingHome = state.home;
-      $("goal-select").value = state.goal.kind === "heading" ? `heading:${state.goal.deg}` : `place:${state.goal.name}`;
-      $("home-status").textContent = "Changing your start or heading keeps your miles but moves your route.";
+      $("goal-select").value = goal.kind === "heading" ? `heading:${goal.deg}` : `place:${goal.name}`;
+      $("home-status").textContent = state.legs.length > 1
+        ? `Saving replaces your ${state.legs.length}-leg journey with one leg from this start. Your miles are kept.`
+        : "Changing your start or heading keeps your miles but moves your route.";
     }
   }
 
@@ -125,21 +171,40 @@
     e.preventDefault();
     const home = resolveHome($("home-input").value);
     if (!home) { $("home-status").textContent = "Pick a city from the list, or use your location."; return; }
-    const [kind, value] = $("goal-select").value.split(/:(.*)/s);
-    let goal;
-    if (kind === "heading") {
-      const deg = Number(value);
-      goal = { kind, deg, name: `Due ${HEADINGS.find(([, d]) => d === deg)[0]}` };
-    } else {
-      const p = PLACES.find((pl) => placeLabel(pl) === value);
-      if (!p) return;
-      goal = { kind: "place", name: placeLabel(p), lat: p.lat, lng: p.lng };
-      if (Geo.distance(home, goal) < 1) { $("home-status").textContent = "Pick a destination that isn't where you start!"; return; }
+    const goal = parseGoal($("goal-select").value);
+    if (!goal) return;
+    if (goal.kind === "place" && Geo.distance(home, goal) < 1) {
+      $("home-status").textContent = "Pick a destination that isn't where you start!";
+      return;
     }
     state.home = home;
-    state.goal = goal;
+    state.legs = [{ from: home, goal, startMiles: 0 }];
     saveState();
     showDashboard();
+  });
+
+  // ---------- Next leg ----------
+  $("next-leg").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const prev = lastLeg();
+    const goal = parseGoal($("next-goal").value);
+    if (!goal || !awaitingNextLeg()) return;
+    const from = { name: prev.goal.name, lat: prev.goal.lat, lng: prev.goal.lng };
+    if (goal.kind === "place" && Geo.distance(from, goal) < 1) return;
+    state.legs.push({ from, goal, startMiles: legEndMiles(prev) });
+    saveState();
+    const banked = totalMiles() - legEndMiles(prev);
+    $("log-message").textContent = `New leg: ${shortName(from.name)} → ${shortName(goal.name)}.` +
+      (banked > 0.05 ? ` Your ${fmt(banked, 2)} extra miles already count toward it!` : "");
+    render();
+  });
+
+  $("legs").addEventListener("click", (e) => {
+    if (!e.target.closest("button[data-undo-leg]") || state.legs.length < 2) return;
+    if (!confirm(`Remove the leg to ${lastLeg().goal.name}? Your miles are kept.`)) return;
+    state.legs.pop();
+    saveState();
+    render();
   });
 
   $("setup-cancel").addEventListener("click", showDashboard);
@@ -164,8 +229,8 @@
     if (newlyUnlocked.length) {
       msg += ` 🎉 You've now walked as far as ${homeShort()} to ${newlyUnlocked.map((p) => p.name).join(", ").replace(/, ([^,]*)$/, " and $1")}!`;
     }
-    const gd = goalDistance();
-    if (gd && before < gd && after >= gd) msg += ` 🏁 You've reached ${state.goal.name}!`;
+    const arrival = legEndMiles(lastLeg());
+    if (before < arrival && after >= arrival) msg += ` 🏁 You've reached ${lastLeg().goal.name}! Pick your next destination below.`;
     $("log-message").textContent = msg;
     $("log-miles").value = "";
     render({ highlight: newlyUnlocked.map((p) => p.name) });
@@ -184,7 +249,7 @@
 
   $("reset-btn").addEventListener("click", () => {
     if (!confirm("Erase your whole journey and start over?")) return;
-    state = { home: null, goal: null, entries: [] };
+    state = emptyState();
     saveState();
     $("log-message").textContent = "";
     $("setup-form").reset();
@@ -203,27 +268,54 @@
       layers = L.layerGroup().addTo(map);
     }
     layers.clearLayers();
-    const bearing = routeBearing();
-    const traveled = Geo.pathPoints(state.home, bearing, total);
+
+    // Shift a run of [lat, lng] points by whole turns of 360° so it starts
+    // next to `prevLng`. This keeps a multi-leg line continuous on the map.
+    const align = (pts, prevLng) => {
+      if (prevLng === null) return pts;
+      const shift = Math.round((prevLng - pts[0][1]) / 360) * 360;
+      return pts.map(([la, ln]) => [la, ln + shift]);
+    };
+
+    const active = activeLegIndex(total);
+    const traveled = [];
+    const waypoints = [];
+    for (let i = 0; i <= active; i++) {
+      const leg = state.legs[i];
+      const pts = align(Geo.pathPoints(leg.from, legBearing(leg), milesOnLeg(leg, total)),
+        traveled.length ? traveled[traveled.length - 1][1] : null);
+      waypoints.push([pts[0], leg.from.name]);
+      traveled.push(...(traveled.length ? pts.slice(1) : pts));
+    }
     const here = traveled[traveled.length - 1];
 
-    const gd = goalDistance();
-    const aheadMiles = gd && gd > total ? gd - total : Math.max(total * 0.25, 50);
-    // Dashed line for the road ahead, unwrapped to continue from `here`.
-    const aheadAligned = [here];
-    for (let i = 1, prev = here[1]; i <= 48; i++) {
-      const p = Geo.destination(state.home, bearing, total + (aheadMiles * i) / 48);
-      let lng = p.lng;
-      while (lng - prev > 180) lng -= 360;
-      while (lng - prev < -180) lng += 360;
-      aheadAligned.push([p.lat, lng]);
-      prev = lng;
+    // Dashed line for the road ahead on the current leg.
+    const leg = state.legs[active];
+    const len = legLength(leg);
+    const done = milesOnLeg(leg, total);
+    const aheadMiles = len === null ? Math.max(done * 0.25, 50) : len - done;
+    if (aheadMiles > 0.05) {
+      const ahead = [here];
+      for (let i = 1, prev = here[1]; i <= 48; i++) {
+        const p = Geo.destination(leg.from, legBearing(leg), done + (aheadMiles * i) / 48);
+        let lng = p.lng;
+        while (lng - prev > 180) lng -= 360;
+        while (lng - prev < -180) lng += 360;
+        ahead.push([p.lat, lng]);
+        prev = lng;
+      }
+      L.polyline(ahead, { color: "#8a94a6", weight: 3, dashArray: "6 8" }).addTo(layers);
+      if (len !== null) {
+        L.circleMarker(ahead[ahead.length - 1], { radius: 7, color: "#e4572e", weight: 3, fillColor: "#ffffff", fillOpacity: 1 })
+          .bindTooltip(`Destination: ${escapeHtml(leg.goal.name)}`).addTo(layers);
+      }
     }
 
-    L.polyline(aheadAligned, { color: "#8a94a6", weight: 3, dashArray: "6 8" }).addTo(layers);
     L.polyline(traveled, { color: "#e4572e", weight: 5 }).addTo(layers);
-    L.circleMarker(traveled[0], { radius: 7, color: "#1f6feb", fillColor: "#1f6feb", fillOpacity: 1 })
-      .bindTooltip(`Home: ${escapeHtml(state.home.name)}`).addTo(layers);
+    waypoints.forEach(([pt, name], i) => {
+      L.circleMarker(pt, { radius: i === 0 ? 7 : 6, color: "#1f6feb", fillColor: "#1f6feb", fillOpacity: 1 })
+        .bindTooltip(`${i === 0 ? "Home" : "Stop"}: ${escapeHtml(name)}`).addTo(layers);
+    });
     L.circleMarker(here, { radius: 9, color: "#ffffff", weight: 3, fillColor: "#e4572e", fillOpacity: 1 })
       .bindTooltip("You are here").addTo(layers);
 
@@ -238,7 +330,9 @@
     const pos = currentPosition(total);
     const nearest = PLACES.map((p) => ({ ...p, d: Geo.distance(pos, p) })).sort((a, b) => a.d - b.d)[0];
     const coordText = `${Math.abs(pos.lat).toFixed(3)}°${pos.lat >= 0 ? "N" : "S"}, ${Math.abs(pos.lng).toFixed(3)}°${pos.lng >= 0 ? "E" : "W"}`;
-    const nearestText = `Nearest big destination: <strong>${escapeHtml(nearest.name)}</strong>, ${fmt(nearest.d, 0)} mi away.`;
+    const nearestText = nearest.d < 5
+      ? `You're right in <strong>${escapeHtml(nearest.name)}</strong>!`
+      : `Nearest big destination: <strong>${escapeHtml(nearest.name)}</strong>, ${fmt(nearest.d, 0)} mi away.`;
     const box = $("here");
 
     if (total === 0) {
@@ -265,7 +359,7 @@
     const [first] = places;
     box.innerHTML = `
       <p class="here-title">📍 Near <strong>${escapeHtml(first.title)}</strong></p>
-      <p class="small muted">${coordText} · ${fmt(total)} mi from ${escapeHtml(state.home.name)}</p>
+      <p class="small muted">${coordText} · ${fmt(Geo.distance(state.home, pos), 0)} mi from ${escapeHtml(shortName(state.home.name))} as the crow flies</p>
       <ul class="facts">${places.map((p) => `
         <li class="fact">
           ${p.thumb ? `<img src="${escapeHtml(p.thumb)}" alt="" loading="lazy">` : ""}
@@ -311,8 +405,55 @@
   }
 
   // Short name for home, e.g. "Chicago" from "Chicago, USA".
-  function homeShort() {
-    return state.home.name === "My location" ? "Home" : state.home.name.replace(/, [^,]+$/, "");
+  const homeShort = () => shortName(state.home.name);
+
+  // ---------- Journey legs ----------
+  function renderJourney(total) {
+    const active = activeLegIndex(total);
+    const leg = state.legs[active];
+    const len = legLength(leg);
+    const done = milesOnLeg(leg, total);
+    const waiting = active === state.legs.length - 1 && awaitingNextLeg(total);
+
+    $("route-label").textContent = [state.home.name, ...state.legs.map((l) => l.goal.name)].map(shortName).join(" → ");
+
+    if (len !== null) {
+      $("goal-progress").style.width = `${Math.min(100, (done / len) * 100)}%`;
+      const banked = total - legEndMiles(leg);
+      $("goal-text").textContent = waiting
+        ? `🏁 You made it to ${leg.goal.name}!` + (banked > 0.05 ? ` ${fmt(banked, 2)} extra miles are saved for your next leg.` : "")
+        : `${fmt((done / len) * 100, 1)}% of the way to ${leg.goal.name}: ${fmt(len - done)} of ${fmt(len, 0)} mi to go.`;
+    } else {
+      const lap = Geo.EARTH_RADIUS_MI * 2 * Math.PI;
+      $("goal-progress").style.width = `${Math.min(100, ((done % lap) / lap) * 100)}%`;
+      $("goal-text").textContent = `Heading ${leg.goal.name.replace("Due ", "").toLowerCase()}: ${fmt(done)} mi on this leg, ${fmt((done / lap) * 100, 2)}% of the way around the world.`;
+    }
+
+    // "Where to next?" picker, shown once you arrive.
+    const form = $("next-leg");
+    form.hidden = !waiting;
+    if (waiting && form.dataset.for !== leg.goal.name) {
+      form.dataset.for = leg.goal.name;
+      $("next-goal").innerHTML = goalOptionsHtml(leg.goal.name);
+      $("next-leg-title").textContent = `Where to next from ${shortName(leg.goal.name)}?`;
+    }
+    if (!waiting) delete form.dataset.for;
+
+    // Leg list (only worth showing once there's more than one leg).
+    $("legs").hidden = state.legs.length < 2;
+    $("legs").innerHTML = state.legs.map((l, i) => {
+      const lLen = legLength(l);
+      const lDone = milesOnLeg(l, total);
+      const status = lLen === null
+        ? `${fmt(lDone, 0)} mi so far`
+        : lDone >= lLen ? `${fmt(lLen, 0)} mi ✓`
+        : i > active ? `${fmt(lLen, 0)} mi · not started`
+        : `${fmt(lDone, 0)} of ${fmt(lLen, 0)} mi`;
+      const undo = i === state.legs.length - 1 && i > 0
+        ? ` <button type="button" class="icon" data-undo-leg aria-label="Remove this leg">✕</button>` : "";
+      return `<li class="${i === active ? "current" : ""}"><span>${escapeHtml(shortName(l.from.name))} → <strong>${escapeHtml(shortName(l.goal.name))}</strong></span>
+        <span class="small muted">${status}${undo}</span></li>`;
+    }).join("");
   }
 
   // ---------- Render ----------
@@ -322,19 +463,7 @@
     $("days-logged").textContent = state.entries.length;
     $("streak").textContent = streak();
 
-    const gd = goalDistance();
-    $("route-label").textContent = `${state.home.name} → ${state.goal.name}`;
-    if (gd) {
-      const pct = Math.min(100, (total / gd) * 100);
-      $("goal-progress").style.width = `${pct}%`;
-      $("goal-text").textContent = total >= gd
-        ? `🏁 You reached ${state.goal.name} (${fmt(gd, 0)} mi) and kept going! ${fmt(total - gd)} mi past it.`
-        : `${fmt(pct, 1)}% of the way to ${state.goal.name}: ${fmt(gd - total)} of ${fmt(gd, 0)} mi to go.`;
-    } else {
-      const lap = Geo.EARTH_RADIUS_MI * 2 * Math.PI;
-      $("goal-progress").style.width = `${Math.min(100, ((total % lap) / lap) * 100)}%`;
-      $("goal-text").textContent = `Heading ${state.goal.name.replace("Due ", "").toLowerCase()}. ${fmt((total / lap) * 100, 2)}% of the way around the world.`;
-    }
+    renderJourney(total);
 
     const sorted = [...state.entries].sort((a, b) => b.date.localeCompare(a.date));
     $("history").innerHTML = sorted.length
@@ -358,6 +487,6 @@
 
   // ---------- Boot ----------
   fillSetupOptions();
-  if (state.home && state.goal) showDashboard();
+  if (state.home && state.legs.length) showDashboard();
   else showSetup(false);
 })();

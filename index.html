@@ -71,6 +71,14 @@
           <div class="progress"><div id="goal-progress" class="progress-bar"></div></div>
           <p id="goal-text" class="small muted"></p>
         </div>
+        <form id="next-leg" class="next-leg" hidden>
+          <label for="next-goal" id="next-leg-title">Where to next?</label>
+          <div class="row">
+            <select id="next-goal" required></select>
+            <button type="submit">Set off</button>
+          </div>
+        </form>
+        <ol id="legs" class="legs" aria-label="Your journey" hidden></ol>
         <div id="here" class="here"></div>
       </section>
 
