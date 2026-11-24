@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mile Marker</title>
+  <meta name="description" content="Log the miles you walk or run and travel the world one day at a time.">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👟</text></svg>">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">👟</span>
+      <h1>Mile Marker</h1>
+    </div>
+    <button id="settings-btn" class="ghost" type="button" hidden>Journey settings</button>
+  </header>
+
+  <main>
+    <!-- First-run setup -->
+    <section id="setup" class="card" hidden>
+      <h2>Plan your journey</h2>
+      <p class="muted">Every mile you log moves you along a virtual route from home. Pick where you're starting and which way you're headed.</p>
+      <form id="setup-form">
+        <label for="home-input">Starting point</label>
+        <div class="row">
+          <input id="home-input" list="city-list" placeholder="Pick a city, or use your location" autocomplete="off" required>
+          <button id="locate-btn" type="button" class="secondary">Use my location</button>
+        </div>
+        <p id="home-status" class="hint"></p>
+
+        <label for="goal-select">Heading toward</label>
+        <select id="goal-select" required></select>
+        <p class="hint">You'll travel the shortest path around the globe toward this place, and keep going past it.</p>
+
+        <div class="row end">
+          <button id="setup-cancel" type="button" class="ghost" hidden>Cancel</button>
+          <button type="submit">Start walking</button>
+        </div>
+      </form>
+      <datalist id="city-list"></datalist>
+    </section>
+
+    <!-- Main dashboard -->
+    <div id="dashboard" hidden>
+      <section class="card stats">
+        <div class="stat"><span class="stat-value" id="total-miles">0</span><span class="stat-label">total miles</span></div>
+        <div class="stat"><span class="stat-value" id="days-logged">0</span><span class="stat-label">days logged</span></div>
+        <div class="stat"><span class="stat-value" id="streak">0</span><span class="stat-label">day streak</span></div>
+      </section>
+
+      <section class="card">
+        <h2>Log today's miles</h2>
+        <form id="log-form" class="row wrap">
+          <input id="log-date" type="date" required aria-label="Date">
+          <input id="log-miles" type="number" min="0.01" max="200" step="0.01" placeholder="Miles" required aria-label="Miles">
+          <button type="submit">Add miles</button>
+        </form>
+        <p id="log-message" class="hint" role="status"></p>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Where you are now</h2>
+          <span id="route-label" class="muted small"></span>
+        </div>
+        <div id="map" aria-label="Map of your journey"></div>
+        <div class="progress-wrap">
+          <div class="progress"><div id="goal-progress" class="progress-bar"></div></div>
+          <p id="goal-text" class="small muted"></p>
+        </div>
+        <form id="next-leg" class="next-leg" hidden>
+          <label for="next-goal" id="next-leg-title">Where to next?</label>
+          <div class="row">
+            <select id="next-goal" required></select>
+            <button type="submit">Set off</button>
+          </div>
+        </form>
+        <ol id="legs" class="legs" aria-label="Your journey" hidden></ol>
+        <div id="here" class="here"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>You've walked as far as…</h2>
+          <span class="muted small">Distance from home, in any direction. These aren't stops on your route.</span>
+        </div>
+        <div id="next-up" class="next-up"></div>
+        <ul id="unlocked" class="place-list"></ul>
+      </section>
+
+      <section class="card">
+        <h2>Your log</h2>
+        <ul id="history" class="history"></ul>
+        <div class="row end">
+          <button id="reset-btn" type="button" class="danger ghost">Reset everything</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="footer muted small">
+    Place summaries from <a href="https://en.wikipedia.org" target="_blank" rel="noopener">Wikipedia</a>.
+    Map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.
+    Your log is saved in this browser only.
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="js/geo.js"></script>
+  <script src="js/places.js"></script>
+  <script src="js/wiki.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
