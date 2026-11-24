@@ -162,7 +162,7 @@
     const newlyUnlocked = placesByDistance().filter((p) => p.dist > before && p.dist <= after);
     let msg = `+${fmt(miles, 2)} mi${existing ? ` (now ${fmt(existing.miles, 2)} mi that day)` : ""}. You've moved ${fmt(miles, 2)} miles further along your route!`;
     if (newlyUnlocked.length) {
-      msg += ` 🎉 New destination${newlyUnlocked.length > 1 ? "s" : ""} in reach: ${newlyUnlocked.map((p) => p.name).join(", ")}!`;
+      msg += ` 🎉 You've now walked as far as ${homeShort()} to ${newlyUnlocked.map((p) => p.name).join(", ").replace(/, ([^,]*)$/, " and $1")}!`;
     }
     const gd = goalDistance();
     if (gd && before < gd && after >= gd) msg += ` 🏁 You've reached ${state.goal.name}!`;
@@ -285,27 +285,34 @@
     const unlocked = all.filter((p) => p.dist <= total).reverse();
     const next = all.find((p) => p.dist > total);
 
+    const home = escapeHtml(homeShort());
+
     if (next) {
       const prevDist = unlocked.length ? unlocked[0].dist : 0;
       const pct = Math.min(100, ((total - prevDist) / (next.dist - prevDist)) * 100);
       $("next-up").innerHTML = `
-        <div class="next-head"><span>Next up: <strong>${escapeHtml(next.name)}</strong>, ${escapeHtml(next.country)}</span>
+        <div class="next-head"><span>Next milestone: ${home} → <strong>${escapeHtml(next.name)}</strong> (${fmt(next.dist, 0)} mi)</span>
         <span class="small muted">${fmt(next.dist - total)} mi to go</span></div>
         <div class="progress"><div class="progress-bar" style="width:${pct}%"></div></div>`;
     } else {
-      $("next-up").innerHTML = `<p>🌍 Every destination on Earth is within your reach. Incredible!</p>`;
+      $("next-up").innerHTML = `<p>🌍 You've walked farther than the distance from home to every place on the list. Incredible!</p>`;
     }
 
     $("unlocked").innerHTML = unlocked.length
       ? unlocked.map((p) => `
         <li class="${highlight.includes(p.name) ? "new" : ""}">
           <details ${highlight.includes(p.name) ? "open" : ""}>
-            <summary><span><strong>${escapeHtml(p.name)}</strong> <span class="muted">${escapeHtml(p.country)}</span>${highlight.includes(p.name) ? ' <span class="badge">New!</span>' : ""}</span>
-            <span class="small muted">${fmt(p.dist, 0)} mi</span></summary>
+            <summary><span><span class="muted">${home} →</span> <strong>${escapeHtml(p.name)}</strong> <span class="muted">${escapeHtml(p.country)}</span>${highlight.includes(p.name) ? ' <span class="badge">New!</span>' : ""}</span>
+            <span class="small muted">${fmt(p.dist, 0)} mi ✓</span></summary>
             <ul class="fun-facts">${p.facts.map((f) => `<li>${escapeHtml(f)}</li>`).join("")}</ul>
           </details>
         </li>`).join("")
-      : `<li class="empty muted">No destinations yet. The closest one is ${next ? `${escapeHtml(next.name)}, ${fmt(next.dist, 0)} miles from home` : "nearby"}. Every mile counts!</li>`;
+      : `<li class="empty muted">Nothing yet. Your first milestone is the distance from ${home} to ${next ? `${escapeHtml(next.name)}: ${fmt(next.dist, 0)} miles` : "the nearest city"}. Every mile counts!</li>`;
+  }
+
+  // Short name for home, e.g. "Chicago" from "Chicago, USA".
+  function homeShort() {
+    return state.home.name === "My location" ? "Home" : state.home.name.replace(/, [^,]+$/, "");
   }
 
   // ---------- Render ----------

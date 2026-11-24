@@ -5,7 +5,7 @@ Log the miles you walk or run each day, and watch yourself travel the world.
 - **Pick a start and a heading.** Choose a starting city (or use your location) and a faraway destination or compass direction.
 - **Log your miles.** Each day's miles add to your running total and move you along the shortest path around the globe.
 - **See where you are.** The map shows your route, and the app looks up real places near your current spot on Wikipedia, with short summaries.
-- **Unlock destinations.** About 75 cities around the world, each with fun facts, unlock when your total miles reach their distance from home.
+- **Distance milestones.** About 75 cities around the world, each with fun facts. Once your total miles pass a city's distance from home (in any direction), you've "walked as far as" home → that city. These are distance comparisons, separate from the map route.
 - Tracks total miles, days logged, your day streak, and progress toward your goal.
 
 Your log is saved in your browser (localStorage). Nothing is sent anywhere except the Wikipedia lookups and map tiles.
