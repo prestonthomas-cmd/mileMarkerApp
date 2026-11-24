@@ -1,0 +1,10 @@
+{
+  "name": "milemarker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Log the miles you walk or run and travel the world one day at a time.",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "test": "node --test tests/geo.test.js"
+  }
+}
